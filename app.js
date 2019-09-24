@@ -4,15 +4,27 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const mongoose = require('mongoose');
 const ejs = require("ejs");
-const bcrypt = require('bcrypt');
-let saltRound = 10;
+const session = require('express-session');
+const passport = require('passport');
+const passportLocalMongoose = require('passport-local-mongoose'); 
 const app = express();
 
 app.set('view engine', 'ejs');
-mongoose.connect('mongodb://localhost:27017/userDB', {useNewUrlParser: true,  useUnifiedTopology: true});
-
 app.use(bodyParser.urlencoded({extended: true})); 
 app.use(express.static("public"));
+
+app.use(session({
+    secret: 'This is a secret.',
+    resave: false,
+    saveUninitialized: false
+}));
+
+app.use(passport.initialize());
+app.use(passport.session());
+
+mongoose.connect('mongodb://localhost:27017/userDB', {useNewUrlParser: true,  useUnifiedTopology: true, useCreateIndex: true});
+
+
 
 const userSchema = new mongoose.Schema(
     {
@@ -21,10 +33,15 @@ const userSchema = new mongoose.Schema(
     }
 );
 
-
+userSchema.plugin(passportLocalMongoose);
 
 
 const User = mongoose.model('User', userSchema);
+
+passport.use(User.createStrategy());
+ 
+passport.serializeUser(User.serializeUser());
+passport.deserializeUser(User.deserializeUser());
 
 
 app.get('/', function(req, res){
@@ -36,28 +53,19 @@ app.get('/login', function(req, res){
 });
 
 app.post('/login', function(req, res){
-    let username = req.body.username;
-    let password = req.body.password;
+    const user = new User({
+        username: req.body.username,
+        password: req.body.password
+    });
 
-    User.findOne({email: username}, function(err, foundUser){
+    req.login(user, (err) => {
         if(err){
-            res.send('user not found');
+            clog(err);
         }
         else{
-            if(foundUser){
-                bcrypt.compare(password, foundUser.password, (err, result) => {
-                    if(result === true){
-                        res.render('secrets');
-                    }
-                    else{
-                        res.send('wrong password');
-                    }
-                });
-                
-            }
-            else{
-                res.send('user not found');
-            }
+            passport.authenticate("local")(req, res, ()=>{
+                res.redirect('/secrets');
+            });
         }
     });
 });
@@ -67,28 +75,33 @@ app.get('/register', function(req, res){
 });
 
 app.post('/register', function(req, res){
-    let username = req.body.username;
-    let password = req.body.password;
     
-
-    bcrypt.hash(password, saltRound, (err, hash) => {
-        const user = new User({
-            email: username,
-            password: hash
-        });
-        user.save(function(err){
-            if(err){
-                console.log(err);
-            }
-            else{
-                res.render('secrets');
-            }
-        });
-    });
-
-    
+    User.register({username: req.body.username}, req.body.password, function(err, user){
+        if(err){
+            clog(err);
+            res.redirect('/register');
+        }
+        else{
+            passport.authenticate("local")(req, res, function(){
+                res.redirect('/secrets');
+            });
+        }
+    } )
 });
 
+app.get('/secrets', function(req, res){
+    if(req.isAuthenticated()){
+        res.render('secrets');
+    }
+    else{
+        res.redirect('/login');
+    }
+});
+
+app.get('/logout', (req, res) => {
+    req.logout();
+    res.redirect('/');
+});
 
 app.listen(3000, function(){
     console.log('app started');
