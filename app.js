@@ -4,8 +4,8 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const mongoose = require('mongoose');
 const ejs = require("ejs");
-const md5 = require('md5');
-
+const bcrypt = require('bcrypt');
+let saltRound = 10;
 const app = express();
 
 app.set('view engine', 'ejs');
@@ -44,12 +44,19 @@ app.post('/login', function(req, res){
             res.send('user not found');
         }
         else{
-            console.log(foundUser.password, md5(password));
-            if(foundUser && foundUser.password === md5(password)){
-                res.render('secrets');
+            if(foundUser){
+                bcrypt.compare(password, foundUser.password, (err, result) => {
+                    if(result === true){
+                        res.render('secrets');
+                    }
+                    else{
+                        res.send('wrong password');
+                    }
+                });
+                
             }
             else{
-                res.send('wrong password');
+                res.send('user not found');
             }
         }
     });
@@ -62,22 +69,31 @@ app.get('/register', function(req, res){
 app.post('/register', function(req, res){
     let username = req.body.username;
     let password = req.body.password;
+    
 
-    const user = new User({
-        email: username,
-        password: md5(password)
+    bcrypt.hash(password, saltRound, (err, hash) => {
+        const user = new User({
+            email: username,
+            password: hash
+        });
+        user.save(function(err){
+            if(err){
+                console.log(err);
+            }
+            else{
+                res.render('secrets');
+            }
+        });
     });
-    user.save(function(err){
-        if(err){
-            console.log(err);
-        }
-        else{
-            res.render('secrets');
-        }
-    });
+
+    
 });
 
 
 app.listen(3000, function(){
     console.log('app started');
 });
+
+function clog(expr){
+    console.log(expr);
+}
